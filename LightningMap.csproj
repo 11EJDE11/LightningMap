@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <TieredCompilation>false</TieredCompilation>
+    <!-- Native code for publish: no JIT and a faster process start. Requires the MSVC linker (VS C++ workload). -->
+    <PublishAot>true</PublishAot>
+  </PropertyGroup>
+  <ItemGroup><PackageReference Include="System.Drawing.Common" Version="9.0.9" /></ItemGroup>
+</Project>
