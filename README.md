@@ -52,7 +52,31 @@ Whole-process time including startup (median of 5 runs), Intel i7-8550U laptop (
 | 4_frostborne_isles | 6780×3480 (23.6 MP) | 332 ms | 27.7 MB | 319 ms | 53 MiB |
 | mag | 8640×4860 (42.0 MP) | 487 ms | 40.8 MB | 416 ms | 62 MiB |
 
+The same measurements on an AMD Ryzen 5 7600X desktop (6 cores/12 threads), Windows 11:
+
+| Map | Native size | Native PNG | PNG size | 1024-wide PNG | Peak memory |
+|---|---|---|---|---|---|
+| SinkSwim | 1560×1050 (1.6 MP) | 55 ms | 2.1 MB | 86 ms | 40 MiB |
+| xmp31s2 | 3960×2040 (8.1 MP) | 72 ms | 12.3 MB | 95 ms | 54 MiB |
+| 2_across_the_frost | 5040×3150 (15.9 MP) | 98 ms | 23.0 MB | 116 ms | 66 MiB |
+| 4_frostborne_isles | 6780×3480 (23.6 MP) | 112 ms | 27.7 MB | 123 ms | 69 MiB |
+| mag | 8640×4860 (42.0 MP) | 163 ms | 40.8 MB | 156 ms | 84 MiB |
+
 The image is drawn in 32-row bands on all cores, and full-resolution PNG bands are compressed in parallel, so memory grows with map width rather than area. Directory runs reuse the archive index and decoded art between maps.
+
+### Library version
+
+The [`library-split`](https://github.com/11EJDE11/LightningMap/tree/library-split) branch turns the renderer into a .NET library for the CnCNet client (`net48` and `net8.0`) with a separate command-line tool. It also downscales and compresses in parallel and produces identical images. Times there for `2_across_the_frost` through the library, from one engine in a client-like process (default JIT settings, PNG written to disk; Ryzen 5 7600X):
+
+| | .NET Framework 4.8 | .NET 8 |
+|---|---|---|
+| Engine setup (once) | 44–54 ms | 25–30 ms |
+| First render, native 5040×3150 | 195–210 ms | 180–195 ms |
+| Later renders, native | 110–120 ms | 105–120 ms |
+| First render, 5000 wide | 300 ms | 240–250 ms |
+| Later renders, 5000 wide | 200–215 ms | 165–170 ms |
+
+The first render includes JIT compilation and loading the theater.
 
 ## Use from C#
 
