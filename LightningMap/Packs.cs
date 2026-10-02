@@ -30,6 +30,7 @@ static class Packs
         if (from < 0 || from >= dest || length > output.Length - dest) throw new InvalidDataException("Invalid compression back-reference.");
         for (int i = 0; i < length; i++) output[dest++] = output[from++];
     }
+    [MethodImpl(Bin.Hot)]
     public static void Lzo(ReadOnlySpan<byte> src, Span<byte> output)
     {
         int p = 0, d = 0, state = 0;
@@ -56,6 +57,7 @@ static class Packs
         }
         throw new InvalidDataException("Missing LZO end marker.");
     }
+    [MethodImpl(Bin.Hot)]
     public static void Lcw(ReadOnlySpan<byte> src, Span<byte> output)
     {
         int p = 0, d = 0; bool relative = src[0] == 0; if (relative) p++;

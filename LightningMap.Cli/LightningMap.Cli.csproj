@@ -10,5 +10,9 @@
     <!-- Native code for publish: no JIT and a faster process start. Requires the MSVC linker (VS C++ workload). -->
     <PublishAot>true</PublishAot>
   </PropertyGroup>
-  <ItemGroup><PackageReference Include="System.Drawing.Common" Version="9.0.9" /></ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\LightningMap\LightningMap.csproj" />
+    <!-- JPEG output only; the library itself has no System.Drawing dependency. -->
+    <PackageReference Include="System.Drawing.Common" Version="9.0.9" />
+  </ItemGroup>
 </Project>

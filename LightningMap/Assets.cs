@@ -1,12 +1,11 @@
-using Microsoft.Win32.SafeHandles;
 namespace LightningMap;
 
 sealed class Assets : IDisposable
 {
-    sealed record Entry(SafeFileHandle Handle, long Offset, int Length);
+    sealed record Entry(FileStream Handle, long Offset, int Length);
     readonly Dictionary<uint, Entry> index = new();
-    readonly List<SafeFileHandle> handles = new();
-    readonly HashSet<(SafeFileHandle, long)> mounted = new();
+    readonly List<FileStream> handles = new();
+    readonly HashSet<(FileStream, long)> mounted = new();
     readonly string root;
     // Loose files are listed once; a File.Exists per lookup cost more than the archive reads themselves.
     readonly HashSet<string> loose;
@@ -27,15 +26,23 @@ sealed class Assets : IDisposable
         {
             if (!loose.Contains(name)) continue;
             string path = Path.Combine(root, name);
-            var h = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-            handles.Add(h); Mount(new(h, 0, checked((int)RandomAccess.GetLength(h))), name);
+            var h = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 1);
+            handles.Add(h); Mount(new(h, 0, checked((int)h.Length)), name);
         }
     }
     byte[] Read(Entry e, int offset, int length)
     {
         if (offset < 0 || length < 0 || (long)offset + length > e.Length) throw new InvalidDataException("MIX entry exceeds archive bounds.");
         byte[] b = new byte[length]; int n = 0;
-        while (n < length) { int got = RandomAccess.Read(e.Handle, b.AsSpan(n), e.Offset + offset + n); if (got == 0) throw new EndOfStreamException(); n += got; }
+        while (n < length)
+        {
+#if NET
+            int got = RandomAccess.Read(e.Handle.SafeFileHandle, b.AsSpan(n), e.Offset + offset + n);
+#else
+            e.Handle.Position = e.Offset + offset + n; int got = e.Handle.Read(b, n, length - n);
+#endif
+            if (got == 0) throw new EndOfStreamException(); n += got;
+        }
         BytesRead += length; return b;
     }
     void Mount(Entry archive, string name)

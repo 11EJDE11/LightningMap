@@ -7,6 +7,7 @@ sealed class Shp(byte[] bytes)
     public int Width { get; } = Bin.U16(bytes, 2);
     public int Height { get; } = Bin.U16(bytes, 4);
     readonly Dictionary<int, Sprite> frames = new();
+    [MethodImpl(Bin.Hot)]
     public Sprite Frame(int frame)
     {
         frame = Math.Clamp(frame, 0, Count - 1);
@@ -44,6 +45,7 @@ sealed class Shp(byte[] bytes)
 sealed record Tile(Sprite Ground, Sprite? Extra, int Height, int Ramp);
 static class Tmp
 {
+    [MethodImpl(Bin.Hot)]
     public static Tile?[] Decode(byte[] b)
     {
         int count = checked(Bin.I32(b) * Bin.I32(b, 4));
@@ -112,7 +114,7 @@ sealed class Theater
         };
         IsoPalette = assets.Require($"iso{PaletteSuffix}.pal");
         UnitPalette = assets.Require($"unit{PaletteSuffix}.pal");
-        TheaterPalette = assets.Require(ini.Replace("md.ini", ".pal", StringComparison.OrdinalIgnoreCase));
+        TheaterPalette = assets.Require(ini.Replace("md.ini", ".pal"));
         var control = new Ini(assets.Require(ini));
         foreach (string section in control.Sections.Where(s => s.StartsWith("TileSet", StringComparison.OrdinalIgnoreCase)).OrderBy(s => int.Parse(s[7..])))
             for (int i = 1; i <= control.Int(section, "TilesInSet"); i++) tiles.Add(control.Get(section, "FileName") + i.ToString("D2"));

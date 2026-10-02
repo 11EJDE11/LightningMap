@@ -69,7 +69,15 @@ static class Program
                 string path = outputDirectory ? Path.Combine(output, Path.GetFileNameWithoutExtension(file) + "." + format) : output;
                 try
                 {
-                    var result = engine.Render(file, path, new(width, quality, compression, options.ContainsKey("--full-map"), !options.ContainsKey("--no-lighting"), brightness, !options.ContainsKey("--no-markers")));
+                    var renderOptions = new RenderOptions(width, compression, options.ContainsKey("--full-map"), !options.ContainsKey("--no-lighting"), brightness, !options.ContainsKey("--no-markers"));
+                    RenderResult result;
+                    if (Path.GetExtension(path).ToLowerInvariant() is ".jpg" or ".jpeg")
+                    {
+                        if (Path.GetFullPath(file).Equals(Path.GetFullPath(path), StringComparison.OrdinalIgnoreCase)) throw new ArgumentException("Output cannot overwrite the input map.");
+                        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
+                        using var jpeg = new JpegSink(path, quality); result = engine.Render(file, jpeg, renderOptions);
+                    }
+                    else result = engine.Render(file, path, renderOptions);
                     records.Add(new(file, path, iteration, init, result));
                     Console.WriteLine($"{Path.GetFileName(file)} -> {path} ({result.Width}x{result.Height}) prepare={result.PrepareMs:F1}ms draw={result.DrawMs:F1}ms resize/encode={result.EncodeMs:F1}ms total={result.TotalMs:F1}ms init={init:F1}ms peak={result.PeakWorkingSetMiB:F1}MiB");
                     if (iteration == 0) foreach (var warning in result.Warnings) Console.Error.WriteLine($"warning: {Path.GetFileName(file)}: {warning}");

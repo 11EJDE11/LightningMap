@@ -13,6 +13,7 @@ sealed class Map
     public byte[] OverlayFrames { get; }
     readonly byte[] heights = new byte[512 * 512];
     public int Elevation(int x, int y) => (uint)x < 512 && (uint)y < 512 ? heights[y * 512 + x] : 0;
+    [MethodImpl(Bin.Hot)]
     public Map(string path)
     {
         Ini = new Ini(File.ReadAllBytes(path));

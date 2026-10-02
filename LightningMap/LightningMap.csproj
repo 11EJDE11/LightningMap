@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- net48 and net8.0 match the CnCNet client's builds; net8.0 also serves net8.0-windows and newer runtimes. -->
+    <TargetFrameworks>net48;net8.0</TargetFrameworks>
+    <LangVersion>14.0</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsAotCompatible Condition="'$(TargetFramework)' == 'net8.0'">true</IsAotCompatible>
+  </PropertyGroup>
+  <ItemGroup>
+    <Using Remove="System.Net.Http" />
+    <Using Include="System.Runtime.CompilerServices" />
+    <InternalsVisibleTo Include="LightningMap.Cli" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFrameworkIdentifier)' == '.NETFramework'">
+    <Reference Include="System.Numerics" />
+    <PackageReference Include="System.Memory" Version="4.6.3" />
+    <PackageReference Include="Polyfill" Version="11.3.0" PrivateAssets="all" />
+  </ItemGroup>
+</Project>

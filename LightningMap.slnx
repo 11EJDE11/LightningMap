@@ -1,3 +1,4 @@
 <Solution>
-  <Project Path="LightningMap.csproj" />
+  <Project Path="LightningMap/LightningMap.csproj" />
+  <Project Path="LightningMap.Cli/LightningMap.Cli.csproj" />
 </Solution>

@@ -4,6 +4,8 @@ using System.Runtime.ExceptionServices;
 namespace LightningMap;
 
 sealed record RenderStats(int Width, int Height, double DrawMs, double EncodeMs);
+// A horizontal strip of the image: source rows [SourceY, SourceY + SourceRows) make output rows [OutputY, OutputY + OutputRows).
+readonly record struct Band(int SourceY, int SourceRows, int OutputY, int OutputRows);
 static class Rasterizer
 {
     const int BandHeight = 32;
@@ -11,58 +13,67 @@ static class Rasterizer
     // never carve into an overlay, tree, building or unit that stands on or near it. Terrain depth is at
     // most a few hundred thousand, so one bit well above that is enough to keep the layers apart.
     const int LayerBias = 1 << 20;
-    // Bands are drawn on worker threads and handed to the output strictly in order. Native-size PNG bands
-    // are also filtered and compressed on the workers. Draw and encode times are summed across workers.
-    public static RenderStats Render(Scene scene, string path, int width, int quality, CompressionLevel compression)
+    // Each band is drawn, downscaled and, for PNG, filtered and compressed on a worker thread, then handed to
+    // the output strictly in order. Output is a PNG written to png, or rows handed to sink. Draw and encode
+    // times are summed across workers.
+    public static RenderStats Render(Scene scene, Stream? png, IImageSink? sink, int width, CompressionLevel compression)
     {
-        int w = width == 0 ? scene.Width : Math.Min(width, scene.Width), h = Math.Max(1, (int)Math.Round((double)scene.Height * w / scene.Width));
-        var bands = new List<Draw>[(scene.Height + BandHeight - 1) / BandHeight];
+        int sw = scene.Width, sh = scene.Height;
+        int w = width == 0 ? sw : Math.Min(width, sw), h = Math.Max(1, (int)Math.Round((double)sh * w / sw));
+        var resampler = w == sw && h == sh ? null : new Resampler(sw, sh, w, h);
+        Band[] bands = resampler?.Bands(BandHeight)
+            ?? Enumerable.Range(0, (sh + BandHeight - 1) / BandHeight).Select(i => { int y = i * BandHeight, n = Math.Min(BandHeight, sh - y); return new Band(y, n, y, n); }).ToArray();
+        // Downscaled bands can share a source row at their edges; a command is drawn into every band it touches.
+        var commands = new List<Draw>?[bands.Length];
         foreach (var c in scene.Commands)
         {
-            if (c.X >= scene.Width || c.X + c.Sprite.Width <= 0 || c.Y >= scene.Height || c.Y + c.Sprite.Height <= 0) continue;
-            int first = Math.Max(0, c.Y / BandHeight), last = Math.Min(bands.Length - 1, (c.Y + c.Sprite.Height - 1) / BandHeight);
-            for (int i = first; i <= last; i++) (bands[i] ??= new()).Add(c);
+            if (c.X >= sw || c.X + c.Sprite.Width <= 0 || c.Y >= sh || c.Y + c.Sprite.Height <= 0) continue;
+            int lo = 0, hi = bands.Length;
+            while (lo < hi) { int mid = (lo + hi) >> 1; if (bands[mid].SourceY + bands[mid].SourceRows <= c.Y) lo = mid + 1; else hi = mid; }
+            for (int i = lo; i < bands.Length && bands[i].SourceY < c.Y + c.Sprite.Height; i++) (commands[i] ??= new()).Add(c);
         }
-        bool jpeg = Path.GetExtension(path).ToLowerInvariant() is ".jpg" or ".jpeg", direct = !jpeg && w == scene.Width;
-        PngBands? png = direct ? new PngBands(path, w, h, compression) : null;
-        IRows? output = direct ? null : jpeg ? new JpegRows(path, w, h, quality) : new PngRows(path, w, h, compression);
-        var resize = output == null ? null : new Downsample(output, scene.Width, scene.Height, w, h);
+        int sourceRows = bands.Max(b => b.SourceRows), outputRows = bands.Max(b => b.OutputRows);
+        var pngOut = png != null ? new PngBands(png, w, h, compression) : null;
+        sink?.Start(w, h);
         int next = -1, turn = 0; bool failed = false; long drawTicks = 0, encodeTicks = 0; var gate = new object();
         void Work()
         {
-            uint[] pixels = new uint[scene.Width * BandHeight]; int[] depth = new int[pixels.Length];
-            var encoder = direct ? new PngBandEncoder(scene.Width, compression) : null;
-            for (int band; (band = Interlocked.Increment(ref next)) < bands.Length;)
+            uint[] pixels = new uint[sw * sourceRows]; int[] depth = new int[pixels.Length];
+            uint[] rows = resampler == null ? pixels : new uint[w * outputRows];
+            var scratch = resampler?.CreateScratch();
+            var encoder = pngOut != null ? new PngBandEncoder(w, compression) : null;
+            for (int index; (index = Interlocked.Increment(ref next)) < bands.Length;)
             {
-                long start = Stopwatch.GetTimestamp(); Array.Fill(pixels, 0xff000000u); Array.Fill(depth, int.MinValue);
-                int y = band * BandHeight, height = Math.Min(BandHeight, scene.Height - y);
-                if (bands[band] is { } commands) foreach (var command in commands) Blit(command, pixels, depth, scene.Width, y, height);
+                var band = bands[index];
+                long start = Stopwatch.GetTimestamp();
+                pixels.AsSpan(0, sw * band.SourceRows).Fill(0xff000000u); depth.AsSpan(0, sw * band.SourceRows).Fill(int.MinValue);
+                if (commands[index] is { } list) foreach (var command in list) Blit(command, pixels, depth, sw, band.SourceY, band.SourceRows);
                 long drawn = Stopwatch.GetTimestamp(); Interlocked.Add(ref drawTicks, drawn - start);
-                encoder?.Encode(pixels, height);
+                resampler?.Run(band, pixels, scratch!, rows);
+                encoder?.Encode(rows, band.OutputRows);
                 long encoding = Stopwatch.GetTimestamp() - drawn;
                 lock (gate)
                 {
-                    while (turn != band && !failed) Monitor.Wait(gate);
+                    while (turn != index && !failed) Monitor.Wait(gate);
                     if (failed) return;
                     long writing = Stopwatch.GetTimestamp();
-                    if (png != null) png.Append(encoder!);
-                    else for (int row = 0; row < height; row++) resize!.Write(pixels.AsSpan(row * scene.Width, scene.Width));
+                    if (pngOut != null) pngOut.Append(encoder!);
+                    else for (int row = 0; row < band.OutputRows; row++) sink!.WriteRow(rows.AsSpan(row * w, w));
                     turn++; Monitor.PulseAll(gate);
                     encoding += Stopwatch.GetTimestamp() - writing;
                 }
                 Interlocked.Add(ref encodeTicks, encoding);
             }
         }
-        long finish;
-        try
-        {
-            int workers = Math.Max(1, Math.Min(Environment.ProcessorCount, bands.Length));
-            try { Parallel.For(0, workers, new ParallelOptions { MaxDegreeOfParallelism = workers }, _ => { try { Work(); } catch { lock (gate) { failed = true; Monitor.PulseAll(gate); } throw; } }); }
-            catch (AggregateException e) { ExceptionDispatchInfo.Capture(e.InnerExceptions[0]).Throw(); }
-        }
-        finally { finish = Stopwatch.GetTimestamp(); if (png != null) png.Dispose(); else output!.Dispose(); }
-        return new(w, h, Stopwatch.GetElapsedTime(0, drawTicks).TotalMilliseconds, Stopwatch.GetElapsedTime(0, encodeTicks).TotalMilliseconds + Stopwatch.GetElapsedTime(finish).TotalMilliseconds);
+        int workers = Math.Max(1, Math.Min(Environment.ProcessorCount, bands.Length));
+        try { Parallel.For(0, workers, new ParallelOptions { MaxDegreeOfParallelism = workers }, _ => { try { Work(); } catch { lock (gate) { failed = true; Monitor.PulseAll(gate); } throw; } }); }
+        catch (AggregateException e) { ExceptionDispatchInfo.Capture(e.InnerExceptions[0]).Throw(); }
+        long finish = Stopwatch.GetTimestamp();
+        if (pngOut != null) pngOut.Finish(); else sink!.Finish();
+        return new(w, h, Ms(drawTicks), Ms(encodeTicks) + Ms(Stopwatch.GetTimestamp() - finish));
     }
+    static double Ms(long ticks) => ticks * 1000.0 / Stopwatch.Frequency;
+    [MethodImpl(Bin.Hot)]
     static unsafe void Blit(Draw c, uint[] pixels, int[] depths, int width, int bandY, int bandHeight)
     {
         Sprite s = c.Sprite;

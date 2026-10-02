@@ -5,7 +5,7 @@ param(
     [int]$Runs = 3
 )
 $ErrorActionPreference = 'Stop'
-$exe = Join-Path $PSScriptRoot 'publish/LightningMap.exe'
+$exe = Join-Path $PSScriptRoot 'publish/LightningMap.Cli.exe'
 New-Item -ItemType Directory -Path $Output -Force | Out-Null
 $samples = @('2_arabian_oasis.map', '2_across_the_frost.map', '2_blockade.map', '2_bajor_le.map', '2_paris_revisited.map', '4_space_race.map', '2_tropic_thunder_le.map')
 $records = @()

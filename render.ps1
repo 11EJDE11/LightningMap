@@ -13,8 +13,8 @@ if (!$Game) {
     $Game = Join-Path $PSScriptRoot '../xna-cncnet-client/DXMainClient/bin/Debug/WindowsDX/net48'
     if (!(Test-Path -LiteralPath $Game)) { throw 'Specify -Game with your Yuri''s Revenge directory.' }
 }
-$exe = Join-Path $PSScriptRoot 'publish/LightningMap.exe'
-if (!(Test-Path -LiteralPath $exe)) { throw 'Build first: dotnet publish LightningMap.csproj -c Release -r win-x64 -o publish' }
+$exe = Join-Path $PSScriptRoot 'publish/LightningMap.Cli.exe'
+if (!(Test-Path -LiteralPath $exe)) { throw 'Build first: dotnet publish LightningMap.Cli/LightningMap.Cli.csproj -c Release -r win-x64 -o publish' }
 $renderArgs = @($Map, '--game', $Game, '--width', "$Width", '--quality', "$Quality", '--brightness', $Brightness.ToString([Globalization.CultureInfo]::InvariantCulture))
 if ($Output) { $renderArgs += @('--output', $Output) }
 if ($NoLighting) { $renderArgs += '--no-lighting' }

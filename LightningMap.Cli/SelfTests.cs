@@ -28,9 +28,15 @@ static class SelfTests
         foreach (var (sw, sh, dw, dh) in new[] { (37, 17, 13, 7), (16, 8, 4, 2), (5, 3, 1, 1), (7, 9, 6, 8), (8, 8, 8, 8) })
         {
             uint[] pixels = Enumerable.Range(0, sw * sh).Select(_ => 0xff000000u | (uint)random.Next(1 << 24)).ToArray();
-            var output = new MemoryRows(); var resizer = new Downsample(output, sw, sh, dw, dh);
-            for (int y = 0; y < sh; y++) resizer.Write(pixels.AsSpan(y * sw, sw));
-            Check(output.Rows.Count == dh, "resize height");
+            // Two-source-row bands, so the test also covers rows shared between bands.
+            var resampler = new Resampler(sw, sh, dw, dh); var bands = resampler.Bands(2); var scratch = resampler.CreateScratch();
+            uint[] output = new uint[dw * dh];
+            foreach (var band in bands)
+            {
+                uint[] rows = new uint[dw * band.OutputRows]; resampler.Run(band, pixels.AsSpan(band.SourceY * sw, band.SourceRows * sw).ToArray(), scratch, rows);
+                rows.CopyTo(output, band.OutputY * dw);
+            }
+            Check(bands.Sum(b => b.OutputRows) == dh, "resize height");
             for (int y = 0; y < dh; y++) for (int x = 0; x < dw; x++)
             {
                 double l = (double)x * sw / dw, r = (double)(x + 1) * sw / dw, t = (double)y * sh / dh, b = (double)(y + 1) * sh / dh;
@@ -40,25 +46,24 @@ static class SelfTests
                     for (int sy = (int)t; sy < Math.Ceiling(b); sy++) for (int sx = (int)l; sx < Math.Ceiling(r); sx++)
                         sum += ((pixels[sy * sw + sx] >> shift) & 255) * (Math.Min(sx + 1, r) - Math.Max(sx, l)) * (Math.Min(sy + 1, b) - Math.Max(sy, t));
                     int expected = (int)Math.Round(sum / ((r - l) * (b - t)));
-                    Check(Math.Abs(expected - ((output.Rows[y][x] >> shift) & 255)) <= 1, "area-filter pixel");
+                    Check(Math.Abs(expected - ((output[y * dw + x] >> shift) & 255)) <= 1, "area-filter pixel");
                 }
             }
         }
         string temp = Path.Combine(Path.GetTempPath(), "lightningmap-test-" + Guid.NewGuid().ToString("N"));
         try
         {
-            using (var png = new PngRows(temp + ".png", 3, 2, CompressionLevel.Fastest)) { png.Write([0xffff0000, 0xff00ff00, 0xff0000ff]); png.Write([0xffffffff, 0xff000000, 0xff123456]); }
+            using (var file = File.Create(temp + ".png"))
+            {
+                // One band per row, so the joined zlib stream and combined Adler-32 are exercised.
+                var png = new PngBands(file, 3, 2, CompressionLevel.Fastest); var encoder = new PngBandEncoder(3, CompressionLevel.Fastest);
+                encoder.Encode([0xffff0000, 0xff00ff00, 0xff0000ff], 1); png.Append(encoder); encoder.Encode([0xffffffff, 0xff000000, 0xff123456], 1); png.Append(encoder); png.Finish();
+            }
             using (var image = new Bitmap(temp + ".png")) { Check(image.Width == 3 && image.Height == 2, "PNG dimensions"); Check(image.GetPixel(2, 1).ToArgb() == unchecked((int)0xff123456), "PNG decoded pixels"); }
-            using (var jpg = new JpegRows(temp + ".jpg", 8, 8, 95)) for (int y = 0; y < 8; y++) jpg.Write(Enumerable.Repeat(0xff808080u, 8).ToArray());
+            using (var jpg = new JpegSink(temp + ".jpg", 95)) { jpg.Start(8, 8); for (int y = 0; y < 8; y++) jpg.WriteRow(Enumerable.Repeat(0xff808080u, 8).ToArray()); jpg.Finish(); }
             using (var image = new Bitmap(temp + ".jpg")) { Check(image.Width == 8 && Math.Abs(image.GetPixel(4, 4).R - 128) < 3, "JPEG encoding"); }
         }
         finally { foreach (string ext in new[] { ".png", ".jpg" }) if (File.Exists(temp + ext)) File.Delete(temp + ext); }
         Console.WriteLine("PASS: codecs, malformed pack rejection, INI, exact area downsampling, PNG pixels, JPEG.");
-    }
-    sealed class MemoryRows : IRows
-    {
-        public List<uint[]> Rows { get; } = new();
-        public void Write(ReadOnlySpan<uint> row) => Rows.Add(row.ToArray());
-        public void Dispose() { }
     }
 }

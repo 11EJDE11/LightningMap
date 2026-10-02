@@ -21,13 +21,14 @@ sealed class Scene
     readonly bool lighting;
     readonly double brightness, ambient, level, ground, red, green, blue;
     // markerRadius is in native pixels; 0 omits start position markers.
+    [MethodImpl(Bin.Hot)]
     public Scene(Map map, Theater theater, Ini baseRules, Ini art, bool full, bool lighting, double brightness = 1, int markerRadius = 0)
     {
         this.map = map; this.theater = theater; this.art = art; this.lighting = lighting; this.brightness = brightness;
         // Read once: Palette runs for every cell and object.
         ambient = map.Ini.Number("Lighting", "Ambient", 1); level = map.Ini.Number("Lighting", "Level", .032); ground = map.Ini.Number("Lighting", "Ground");
         red = map.Ini.Number("Lighting", "Red", 1); green = map.Ini.Number("Lighting", "Green", 1); blue = map.Ini.Number("Lighting", "Blue", 1);
-        rules = new Ini(); rules.Merge(baseRules); rules.Merge(map.Ini);
+        rules = Ini.Layered(baseRules, map.Ini);
         int[] rect = full ? [0, 0, map.Width, map.Height] : map.Local;
         Width = rect[2] * 60; Height = rect[3] * 30;
         originX = rect[0] * 60; originY = rect[1] * 30;
@@ -179,6 +180,7 @@ sealed class Scene
             }
         }
     }
+    [MethodImpl(Bin.Hot)]
     uint[] Palette(byte[] source, int x, int y, int height, string owner, bool lit)
     {
         double ambient = lighting && lit ? this.ambient + height * level - ground : 1;

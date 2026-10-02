@@ -9,6 +9,7 @@ static class Voxel
     readonly record struct Point(float X, float Y, float Z, byte Color, byte Shade);
     static float F(byte[] b, int p) => BitConverter.Int32BitsToSingle(Bin.I32(b, p));
     static string Name(byte[] b, int p) => Encoding.ASCII.GetString(b, p, 16).Split('\0')[0];
+    [MethodImpl(Bin.Hot)]
     public static Sprite Render(byte[] file, byte[]? hva, int facing)
     {
         if (!file.AsSpan(0, 15).SequenceEqual("Voxel Animation"u8)) throw new InvalidDataException("Invalid VXL signature.");
@@ -68,7 +69,7 @@ static class Voxel
         int left = (int)Math.Floor(points.Min(p => p.X)) - 1, top = (int)Math.Floor(points.Min(p => p.Y)) - 1;
         int width = (int)Math.Ceiling(points.Max(p => p.X)) - left + 2, height = (int)Math.Ceiling(points.Max(p => p.Y)) - top + 2;
         if (width > 2048 || height > 2048) throw new InvalidDataException("VXL projected bounds too large.");
-        byte[] pixels = new byte[width * height], shadeMap = new byte[pixels.Length]; float[] depths = new float[pixels.Length]; Array.Fill(depths, float.NegativeInfinity);
+        byte[] pixels = new byte[width * height], shadeMap = new byte[pixels.Length]; float[] depths = new float[pixels.Length]; depths.AsSpan().Fill(float.NegativeInfinity);
         foreach (var v in points)
         {
             int x = (int)Math.Round(v.X) - left, y = (int)Math.Round(v.Y) - top;

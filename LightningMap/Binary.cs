@@ -6,12 +6,20 @@ namespace LightningMap;
 
 static class Bin
 {
+    // Hot loops start fully optimised instead of in unoptimised tier-0 code, which can be several times slower
+    // for the first renders. AggressiveOptimization exists only on .NET Core; 0 means no flags.
+#if NET
+    public const MethodImplOptions Hot = MethodImplOptions.AggressiveOptimization;
+#else
+    public const MethodImplOptions Hot = 0;
+#endif
     public static ushort U16(ReadOnlySpan<byte> b, int p = 0) => BinaryPrimitives.ReadUInt16LittleEndian(b[p..]);
     public static int I32(ReadOnlySpan<byte> b, int p = 0) => BinaryPrimitives.ReadInt32LittleEndian(b[p..]);
     public static uint U32(ReadOnlySpan<byte> b, int p = 0) => BinaryPrimitives.ReadUInt32LittleEndian(b[p..]);
     static readonly uint[] CrcTable = Enumerable.Range(0, 256).Select(i => {
         uint v = (uint)i; for (int j = 0; j < 8; j++) v = (v >> 1) ^ ((v & 1) != 0 ? 0xedb88320u : 0); return v;
     }).ToArray();
+    [MethodImpl(Bin.Hot)]
     public static uint Crc(ReadOnlySpan<byte> bytes, uint crc = 0)
     { crc = ~crc; foreach (byte b in bytes) crc = CrcTable[(crc ^ b) & 255] ^ (crc >> 8); return ~crc; }
     public static uint FileId(string name)
@@ -38,12 +46,13 @@ sealed class MixCipher
     public MixCipher(ReadOnlySpan<byte> source)
     {
         byte[] der = Convert.FromBase64String("AihRvNoIbTn85FZRYNZRcT+i6KpU+maCsEqr3Q5q+LDB5tH7Tz2qQ38V");
-        var modulus = new BigInteger(der.AsSpan(2), isUnsigned: true, isBigEndian: true);
+        byte[] bigEndian = der.AsSpan(2).ToArray(); Array.Reverse(bigEndian);
+        var modulus = Unsigned(bigEndian);
         Span<byte> key = stackalloc byte[78]; key.Clear();
         for (int i = 0; i < 2; i++)
         {
-            var n = new BigInteger(source.Slice(i * 40, 40), isUnsigned: true);
-            var decoded = BigInteger.ModPow(n, 65537, modulus).ToByteArray(isUnsigned: true);
+            var n = Unsigned(source.Slice(i * 40, 40).ToArray());
+            var decoded = BigInteger.ModPow(n, 65537, modulus).ToByteArray();
             decoded.AsSpan(0, Math.Min(decoded.Length, 39)).CopyTo(key[(i * 39)..]);
         }
         int k = 0;
@@ -51,6 +60,8 @@ sealed class MixCipher
         uint a = 0, b = 0;
         for (int i = 0; i < s.Length; i += 2) { Encrypt(ref a, ref b); s[i] = a; s[i + 1] = b; }
     }
+    // A little-endian unsigned integer; the extra zero byte keeps BigInteger from reading it as negative.
+    static BigInteger Unsigned(byte[] littleEndian) => new([.. littleEndian, 0]);
     public void Decrypt(Span<byte> data)
     {
         for (int p = 0; p < data.Length; p += 8)
