@@ -88,6 +88,8 @@ sealed class Theater
     public byte[] IsoPalette { get; }
     public byte[] UnitPalette { get; }
     public byte[] TheaterPalette { get; }
+    /// <summary>anim.pal: art with AnimPalette=yes (glows, screens), drawn unlit. Falls back to the unit palette.</summary>
+    public byte[] AnimPalette { get; }
     readonly Assets assets;
     readonly List<string> tiles = new();
     readonly Dictionary<int, Tile?[][]> cache = new();
@@ -115,6 +117,7 @@ sealed class Theater
         IsoPalette = assets.Require($"iso{PaletteSuffix}.pal");
         UnitPalette = assets.Require($"unit{PaletteSuffix}.pal");
         TheaterPalette = assets.Require(ini.Replace("md.ini", ".pal"));
+        AnimPalette = assets.Get("anim.pal") ?? UnitPalette;
         var control = new Ini(assets.Require(ini));
         foreach (string section in control.Sections.Where(s => s.StartsWith("TileSet", StringComparison.OrdinalIgnoreCase)).OrderBy(s => int.Parse(s[7..])))
             for (int i = 1; i <= control.Int(section, "TilesInSet"); i++) tiles.Add(control.Get(section, "FileName") + i.ToString("D2"));

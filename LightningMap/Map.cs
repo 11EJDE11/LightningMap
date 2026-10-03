@@ -20,8 +20,13 @@ sealed class Map
         var size = Ini.Get("Map", "Size").Split(',').Select(int.Parse).ToArray();
         if (size.Length != 4 || size[2] <= 0 || size[3] <= 0 || size[2] + size[3] > 510) throw new InvalidDataException("Invalid map dimensions.");
         Width = size[2]; Height = size[3];
-        Local = Ini.Get("Map", "LocalSize", $"0,0,{Width},{Height}").Split(',').Select(int.Parse).ToArray();
-        if (Local.Length != 4 || Local[0] < 0 || Local[1] < 0 || Local[2] <= 0 || Local[3] <= 0 || Local[0] + Local[2] > Width || Local[1] + Local[3] > Height) throw new InvalidDataException("Invalid LocalSize.");
+        // Some maps' LocalSize runs past Size (the editor doesn't stop it, the game clamps); clamp it the same way,
+        // and fall back to the whole map only when nothing usable is left.
+        var local = Ini.Get("Map", "LocalSize", $"0,0,{Width},{Height}").Split(',').Select(v => int.TryParse(v.Trim(), out int n) ? n : -1).ToArray();
+        if (local.Length != 4 || local.Any(n => n < 0)) local = [0, 0, Width, Height];
+        int lx = Math.Min(local[0], Width - 1), ly = Math.Min(local[1], Height - 1);
+        int lw = Math.Min(local[2], Width - lx), lh = Math.Min(local[3], Height - ly);
+        Local = lw > 0 && lh > 0 ? [lx, ly, lw, lh] : [0, 0, Width, Height];
         Theater = Ini.Get("Map", "Theater", "TEMPERATE").ToUpperInvariant();
         var packed = Ini.Pack("IsoMapPack5", true, 512 * 512 * 11 + 4);
         if (packed.Length < 11) throw new InvalidDataException("Map has no IsoMapPack5 terrain.");
