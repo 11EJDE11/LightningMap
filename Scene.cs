@@ -22,7 +22,7 @@ sealed class Scene
     readonly Map map;
     readonly Theater theater;
     readonly Ini rules, art;
-    readonly Dictionary<(int, int, int, int, string), uint[]> palettes = new();
+    readonly Dictionary<(byte[], int, int, int, string), uint[]> palettes = new();
     readonly List<Lamp> lamps = new();
     readonly int originX, originY;
     readonly bool lighting;
@@ -235,7 +235,14 @@ sealed class Scene
         // Ordinary terrain uses iso art. Ore drills (TIBTRE01/02/03) are terrain objects drawn through the
         // unit palette and lit by brightness only, like buildings and units. Ownership only affects remapping.
         if (kind == ArtKind.Terrain) return rules.Yes(id, "SpawnsTiberium") ? (theater.UnitPalette, Light.Ambient) : (theater.IsoPalette, Light.Full);
-        return (theater.UnitPalette, Light.Ambient);
+        return (RemapPalette(image), Light.Ambient);
+    }
+    // The house-remapped palette (TechnoClass::Get_Remap_Color): art Palette= when that file exists (CANEWY04 uses
+    // Palette=lib), else the unit palette. Building animations use it even on TerrainPalette buildings.
+    byte[] RemapPalette(string image)
+    {
+        string name = art.Get(image, "Palette");
+        return (name.Length > 0 ? theater.CustomPalette(name) : null) ?? theater.UnitPalette;
     }
     double ExtraLight(ArtKind kind) => kind switch { ArtKind.Unit => extraUnitLight, ArtKind.Infantry => extraInfantryLight, ArtKind.Aircraft => extraAircraftLight, _ => 0 };
 
@@ -245,10 +252,12 @@ sealed class Scene
         if (rules.Yes(id, "InvisibleInGame")) return;
         string image = rules.Get(id, "Image", id), imageFile = art.Get(image, "Image", image);
         var (source, light) = ArtPalette(kind, id, image);
+        // TerrainPalette buildings are drawn with the cell's iso drawer, which has no house remap (Techno_Draw_Object).
+        string remapOwner = art.Yes(image, "TerrainPalette") ? "" : owner;
         if (art.Yes(image, "Voxel"))
         {
             int elevation = map.Elevation(cx, cy); var pos = Position(cx, cy, elevation);
-            var pal = Palette(source, cx, cy, elevation, owner, light, ExtraLight(kind));
+            var pal = Palette(source, cx, cy, elevation, remapOwner, light, ExtraLight(kind));
             var voxel = theater.VoxelShape(imageFile, facing);
             if (voxel == null) { Warnings.Add($"Missing voxel {imageFile}"); return; }
             Add(voxel, pos.X, pos.Y, (cx + cy) * 32 + 24, pal);
@@ -280,7 +289,7 @@ sealed class Scene
             string seq = art.Get(image, "Sequence"); var ready = art.Get(seq, "Guard", "0,1,1").Split(',');
             if (ready.Length >= 3) frame = int.Parse(ready[0]) + ((facing + 16) / 32 % 8) * int.Parse(ready[2]);
         }
-        var palette = Palette(source, cx, cy, height, owner, light, ExtraLight(kind));
+        var palette = Palette(source, cx, cy, height, remapOwner, light, ExtraLight(kind));
         if (shp.Count % 2 == 0 && !art.Yes(image, "NoShadow"))
         {
             var shadow = shp.Frame(frame + shp.Count / 2);
@@ -289,6 +298,8 @@ sealed class Scene
         Add(shp.Frame(frame), x, y, depth, palette);
         if (kind == ArtKind.Building)
         {
+            // The bib is drawn with the building's own drawer; the animations with the house-remapped palette.
+            var remapped = art.Yes(image, "TerrainPalette") ? Palette(RemapPalette(image), cx, cy, height, owner, Light.Ambient) : palette;
             foreach (string key in new[] { "BibShape", "ActiveAnim", "ActiveAnimTwo", "ActiveAnimThree", "ActiveAnimFour", "IdleAnim", "SuperAnim" })
             {
                 string anim = art.Get(image, key); if (anim.Length == 0) continue;
@@ -297,7 +308,8 @@ sealed class Scene
                 if (animation == null) { Warnings.Add($"Missing building animation {anim}"); continue; }
                 int z = key == "BibShape" ? depth - 2 : depth + 1;
                 // Animations with AnimPalette=yes (glows, screens) are drawn through anim.pal, unlit.
-                var animPalette = art.Yes(anim, "AnimPalette") ? Palette(theater.AnimPalette, cx, cy, height, "", Light.None) : palette;
+                var animPalette = art.Yes(anim, "AnimPalette") ? Palette(theater.AnimPalette, cx, cy, height, "", Light.None)
+                    : key == "BibShape" ? palette : remapped;
                 Add(animation.Frame(art.Int(anim, "Start")), x + art.Int(image, key + "X"), y + art.Int(image, key + "Y"), z, animPalette);
             }
         }
@@ -356,13 +368,14 @@ sealed class Scene
         // 1/256 steps keep the palette cache small while staying below what an 8-bit channel can show.
         int ir = (int)Math.Round(rm * brightness * 256), ig = (int)Math.Round(gm * brightness * 256), ib = (int)Math.Round(bm * brightness * 256);
         string color = owner.Length == 0 ? "" : rules.Get(owner, "Color", "Grey");
-        int sourceId = ReferenceEquals(source, theater.IsoPalette) ? 0 : ReferenceEquals(source, theater.UnitPalette) ? 1 : ReferenceEquals(source, theater.TheaterPalette) ? 2 : 3;
-        var key = (sourceId, ir, ig, ib, color);
+        // Palettes are keyed by identity: each source array is loaded once per theater.
+        var key = (source, ir, ig, ib, color);
         if (palettes.TryGetValue(key, out var cached)) return cached;
         byte[] colors = source;
         if (owner.Length != 0) { colors = (byte[])source.Clone(); RemapHouse(colors, rules.Get("Colors", color, "0,0,180")); }
-        // Unit-palette colours 240-254 are never lit (lights, glows and other self-illuminated details).
-        bool objectPalette = sourceId == 1;
+        // Unit-palette colours 240-254 are never lit (lights, glows and other self-illuminated details). Art Palette=
+        // palettes are built into house colour schemes the same way as the unit palette, so they share the rule.
+        bool objectPalette = ReferenceEquals(source, theater.UnitPalette) || theater.IsCustomPalette(source);
         uint[] result = new uint[256];
         double unlit = brightness * 256;
         for (int i = 0; i < 256; i++)

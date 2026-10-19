@@ -93,6 +93,11 @@ sealed class Theater
     readonly Dictionary<int, Tile?[][]> cache = new();
     readonly Dictionary<string, Shp?> shapes = new(StringComparer.OrdinalIgnoreCase);
     readonly Dictionary<(string, int), Sprite?> voxels = new();
+    readonly Dictionary<string, byte[]?> customPalettes = new(StringComparer.OrdinalIgnoreCase);
+    // Art Palette=NAME loads NAME plus the theater suffix (Palette=lib is libtem.pal); the game ignores a missing file.
+    public byte[]? CustomPalette(string name) =>
+        customPalettes.TryGetValue(name, out var cached) ? cached : customPalettes[name] = assets.Get($"{name}{PaletteSuffix}.pal");
+    public bool IsCustomPalette(byte[] palette) => customPalettes.ContainsValue(palette);
     public Sprite? VoxelShape(string image, int facing)
     {
         var key = (image.ToUpperInvariant(), facing);
