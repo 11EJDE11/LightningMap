@@ -33,6 +33,7 @@ LightningMap.exe "C:\Games\YR\Maps" --game "C:\Games\YR" --output previews --wid
 | `--no-lighting` | Use unmodified palette colours |
 | `--brightness <0.1-4>` | Exposure multiplier (default 1) |
 | `--no-markers` | Omit start position markers |
+| `--marker-scale <0.1-4>` | Start marker size multiplier (default 1) |
 | `--repeat <N>` | Render N times in one process (warm-cache timing) |
 | `--report <file>` | Save timings, warnings and failures as JSON |
 | `--strict` | Exit with code 2 if any asset warnings occur |

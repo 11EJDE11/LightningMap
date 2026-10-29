@@ -31,6 +31,7 @@ static class Program
                       --full-map                    Include area outside LocalSize
                       --no-lighting                 Use unmodified palette colors
                       --no-markers                  Omit start position markers
+                      --marker-scale <0.1..4>       Start marker size multiplier (default 1)
                       --brightness <0.1..4>         Exposure multiplier (default 1)
                       --format png|jpg              Format for directory input (default png)
                       --repeat <N>                  Repeat in one process for warm-cache timings
@@ -40,7 +41,7 @@ static class Program
                     Native dimensions: LocalSize width * 60 by LocalSize height * 30.
                     """); return 0;
             }
-            var valued = new HashSet<string> { "--game", "--output", "--width", "--quality", "--compression", "--format", "--repeat", "--report", "--brightness" };
+            var valued = new HashSet<string> { "--game", "--output", "--width", "--quality", "--compression", "--format", "--repeat", "--report", "--brightness", "--marker-scale" };
             var flags = new HashSet<string> { "--full-map", "--no-lighting", "--no-markers", "--strict" };
             var options = new Dictionary<string, string>();
             for (int i = 1; i < args.Length; i++)
@@ -55,7 +56,9 @@ static class Program
             if (format is not ("png" or "jpg")) throw new ArgumentException("--format must be png or jpg.");
             int width = int.Parse(Option("--width", "0")), quality = int.Parse(Option("--quality", "90")), repeat = int.Parse(Option("--repeat", "1"));
             double brightness = double.Parse(Option("--brightness", "1"), System.Globalization.CultureInfo.InvariantCulture);
+            double markerScale = double.Parse(Option("--marker-scale", "1"), System.Globalization.CultureInfo.InvariantCulture);
             if (width < 0 || quality is < 1 or > 100 || repeat is < 1 or > 10000 || !double.IsFinite(brightness) || brightness is < .1 or > 4) throw new ArgumentException("Invalid width, quality, repeat count or brightness.");
+            if (!double.IsFinite(markerScale) || markerScale is < .1 or > 4) throw new ArgumentException("--marker-scale must be between 0.1 and 4.");
             var compression = Option("--compression", "fast") switch { "fast" => CompressionLevel.Fastest, "normal" => CompressionLevel.Optimal, "small" => CompressionLevel.SmallestSize, _ => throw new ArgumentException("Unknown compression mode.") };
             bool directory = Directory.Exists(args[0]);
             var files = directory ? Directory.GetFiles(args[0]).Where(f => Path.GetExtension(f).ToLowerInvariant() is ".map" or ".mpr" or ".yrm").Order(StringComparer.OrdinalIgnoreCase).ToArray() : new[] { args[0] };
@@ -69,7 +72,7 @@ static class Program
                 string path = outputDirectory ? Path.Combine(output, Path.GetFileNameWithoutExtension(file) + "." + format) : output;
                 try
                 {
-                    var result = engine.Render(file, path, new(width, quality, compression, options.ContainsKey("--full-map"), !options.ContainsKey("--no-lighting"), brightness, !options.ContainsKey("--no-markers")));
+                    var result = engine.Render(file, path, new(width, quality, compression, options.ContainsKey("--full-map"), !options.ContainsKey("--no-lighting"), brightness, !options.ContainsKey("--no-markers"), markerScale));
                     records.Add(new(file, path, iteration, init, result));
                     Console.WriteLine($"{Path.GetFileName(file)} -> {path} ({result.Width}x{result.Height}) prepare={result.PrepareMs:F1}ms draw={result.DrawMs:F1}ms resize/encode={result.EncodeMs:F1}ms total={result.TotalMs:F1}ms init={init:F1}ms peak={result.PeakWorkingSetMiB:F1}MiB");
                     if (iteration == 0) foreach (var warning in result.Warnings) Console.Error.WriteLine($"warning: {Path.GetFileName(file)}: {warning}");
